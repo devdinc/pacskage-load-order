@@ -138,4 +138,4 @@ function pacskage_load_order(sender: Object):
         add size of {_batch::*} to {_count}
         remove {_batch::*} from {_pending::*}
         add 1 to {_layer}
-    send "[pacskage-load-order] ordered %{_count}% package(s) - /sk reload scripts to apply" to {_sender}
+    send "[pacskage-load-order] ordered %{_count}% package(s)" to {_sender}
