@@ -1,3 +1,5 @@
+# TODO it would be best that i use core skript's functions rather than rewriting them like this.
+
 using script reflection
 
 import:
