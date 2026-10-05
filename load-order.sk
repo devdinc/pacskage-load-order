@@ -1,141 +1,113 @@
-# TODO it would be best that i use core skript's functions rather than rewriting them like this.
-
 using script reflection
 
-import:
-    ch.njol.skript.Skript
-    java.nio.file.Files
-    java.nio.file.Path
+# pacskage's helpers are local functions, so each one used here is looked up by
+# name from the core script, which pacskage passes in as {_core}. the wrappers
+# keep pacskage's own names and take core as their first argument
+local function core_function(core: Object, name: String) -> Object:
+    return the function named {_name} from {_core}
 
-# Optional pacskage load-order package.
-# All NN~name handling and dependency-layer ordering lives here.
-# The core pacskage.sk remains mostly unaware of load-order prefixes.
+local function pkg_list(core: Object) -> Strings:
+    set {_f} to core_function({_core}, "pkg_list")
+    return the result of {_f}
 
-local function lo_scripts_root() -> String:
-    set {_data} to Skript.getInstance().getDataFolder().getCanonicalPath()
-    return "%{_data}%/scripts"
+local function pkg_bare(core: Object, folder: String) -> String:
+    set {_f} to core_function({_core}, "pkg_bare")
+    return the result of {_f} with arguments {_folder}
 
-local function lo_pkg_root() -> String:
-    return "%lo_scripts_root()%/packages"
+local function pkg_resolve(core: Object, name: String) -> String:
+    set {_f} to core_function({_core}, "pkg_resolve")
+    return the result of {_f} with arguments {_name}
 
-local function lo_sub(text: String, start: Integer, end: Integer = -1) -> String:
-    if {_end} < 0:
-        set {_end} to length of {_text}
-    return subtext of {_text} from {_start} to {_end}
+local function pkg_dir(core: Object, name: String) -> String:
+    set {_f} to core_function({_core}, "pkg_dir")
+    return the result of {_f} with arguments {_name}
 
-local function lo_trim(text: String) -> String:
-    while {_text} starts with " ":
-        set {_text} to lo_sub({_text}, 2)
-    while {_text} ends with " ":
-        set {_text} to the first (length of {_text} - 1) characters of {_text}
-    if length of {_text} <= 0:
-        stop
-    return {_text}
+local function manifest(core: Object, dir: String, key: String) -> String:
+    set {_f} to core_function({_core}, "manifest")
+    return the result of {_f} with arguments {_dir}, {_key}
 
-local function lo_pkg_folders() -> Strings:
-    if Files.exists(Path.of(lo_pkg_root())) is false:
-        stop
-    set {_paths::*} to (...Files.list(Path.of(lo_pkg_root())).toArray())
-    for {_path} in {_paths::*}:
-        if Files.isDirectory({_path}) is true:
-            add {_path}.getFileName().toString() to {_folders::*}
-    return {_folders::*}
+local function trim(core: Object, text: String) -> String:
+    set {_f} to core_function({_core}, "trim")
+    return the result of {_f} with arguments {_text}
 
-# Folder name without the disabled marker or the NN~ load-order prefix.
-# This intentionally matches the original load-order implementation.
-local function lo_bare(folder: String) -> String:
-    if {_folder} starts with "-":
-        set {_folder} to lo_sub({_folder}, 2)
-    set {_parts::*} to split {_folder} at "~"
-    return last element of {_parts::*}
+local function dir_rename(core: Object, from: String, to: String):
+    set {_f} to core_function({_core}, "dir_rename")
+    run {_f} with arguments {_from}, {_to}
 
-# Resolve a bare package name against the actual installed folder.
-# This is the standalone equivalent of the load-order version's pkg_resolve().
-local function lo_resolve(name: String) -> String:
-    for {_folder} in lo_pkg_folders():
-        if lo_bare({_folder}) is {_name}:
-            return "%lo_pkg_root()%/%{_folder}%"
+# bare names of the enabled packages, the ones that get a load-order prefix
+local function pkg_enabled_names(core: Object) -> Strings:
+    set {_folders::*} to (pkg_list({_core}) where [input does not start with "-"])
+    return ({_folders::*} transformed with [pkg_bare({_core}, input)])
 
-# Read one manifest value from an already-resolved package directory.
-local function lo_manifest(folder: String, key: String) -> String:
-    set {_lines::*} to (...Files.readAllLines(Path.of("%{_folder}%/package.txt")).toArray())
-    for {_line} in {_lines::*}:
-        set {_line} to lo_trim({_line})
-        if {_line} does not start with "#":
-            if {_line} starts with "%{_key}%:":
-                return lo_trim(lo_sub({_line}, (length of {_key} + 2)))
-
-# Convert one manifest package dependency into the installed bare package name.
-# URL dependencies first use the recorded origin, exactly like the original.
-local function lo_dep_name(entry: String) -> String:
-    set {_entry} to (lo_trim({_entry}) ? "")
+# a dependency entry (url or bare name) as an installed package's name
+# (an origin match comes back as its folder name, see pkg_by_origin)
+local function pkg_dep_name(core: Object, entry: String) -> String:
+    set {_entry} to (trim({_core}, {_entry}) ? "")
     if {_entry} contains "://":
         set {_found} to pkg_by_origin({_entry})
         if {_found} is set:
-            return lo_bare({_found})
+            return {_found}
     set {_dep} to pkg_name({_entry})
     if {_dep} is not set:
         stop
     return {_dep}
 
-function lo_enabled_names() -> Strings:
-    for {_folder} in lo_pkg_folders():
-        if {_folder} does not start with "-":
-            add lo_bare({_folder}) to {_names::*}
-    return {_names::*}
-
-function lo_dep_names(name: String) -> Strings:
-    set {_folder} to lo_resolve({_name})
-    if {_folder} is not set:
+local function pkg_dep_names(core: Object, name: String) -> Strings:
+    set {_dir} to pkg_resolve({_core}, {_name})
+    if {_dir} is not set:
         stop
-    set {_raw} to (lo_manifest({_folder}, "packages") ? "")
+    set {_raw} to manifest({_core}, {_dir}, "packages")
     if {_raw} is not set:
         stop
     for {_entry} in split {_raw} at ",":
-        set {_dep} to lo_dep_name({_entry})
+        set {_dep} to pkg_dep_name({_core}, {_entry})
         if {_dep} is set:
-            add {_dep} to {_names::*}
+            add pkg_bare({_core}, {_dep}) to {_names::*}
     return {_names::*}
 
-local function lo_layer_prefix(layer: Integer) -> String:
+# true while a dependency is still waiting to be placed. deps that are
+# disabled, missing or self-referencing don't count
+local function pkg_has_pending_deps(core: Object, name: String, pending: Strings) -> Boolean:
+    for {_dep} in pkg_dep_names({_core}, {_name}):
+        if all:
+            {_dep} is not {_name}
+            {_pending::*} contains {_dep}
+        then:
+            return true
+    return false
+
+# two-digit folder prefix for a load-order layer: 1 -> 01
+local function pkg_layer_prefix(layer: Integer) -> String:
     set {_text} to "%{_layer}%"
     while length of {_text} < 2:
         set {_text} to "0%{_text}%"
     return {_text}
 
-function lo_set_load_order(name: String, layer: Integer):
-    set {_current} to lo_resolve({_name})
-    if {_current} is not set:
-        stop
-    set {_target} to "%lo_pkg_root()%/%lo_layer_prefix({_layer})%~%{_name}%"
+# renames one package folder to <layer>~<name>
+local function pkg_set_load_order(core: Object, name: String, layer: Integer):
+    set {_current} to pkg_resolve({_core}, {_name})
+    set {_target} to pkg_dir({_core}, "%pkg_layer_prefix({_layer})%~%{_name}%")
     if {_current} is not {_target}:
-        Files.move(Path.of({_current}), Path.of({_target}))
+        dir_rename({_core}, {_current}, {_target})
 
-function pacskage_load_order(sender: Object):
-    set {_pending::*} to lo_enabled_names()
+# each pass places every package whose deps are already placed, and all of
+# them share that pass's number. a pass that places nothing means a cycle:
+# the remaining packages are reported and share the last layer
+function pkg_reorder_by_load_order(core: Object, sender: Object):
+    set {_pending::*} to pkg_enabled_names({_core})
     if {_pending::*} is not set:
-        send "[pacskage-load-order] no enabled packages found to order" to {_sender}
+        send "[pacskage-reorder] no enabled packages found to order" to {_sender}
         stop
     set {_layer} to 1
     set {_count} to 0
     while {_pending::*} is set:
-        delete {_batch::*}
-        loop {_pending::*}:
-            set {_name} to loop-value
-            set {_blocked} to false
-            loop lo_dep_names({_name}):
-                set {_dep} to loop-value-2
-                if {_pending::*} contains {_dep}:
-                    if {_dep} is not {_name}:
-                        set {_blocked} to true
-            if {_blocked} is false:
-                add {_name} to {_batch::*}
+        set {_batch::*} to ({_pending::*} where [pkg_has_pending_deps({_core}, input, {_pending::*}) is false])
         if {_batch::*} is not set:
-            send "[pacskage-load-order] circular package dependencies among: %{_pending::*}%" to {_sender}
+            send "[pacskage-reorder] circular package dependencies among: %{_pending::*}%" to {_sender}
             set {_batch::*} to {_pending::*}
         loop {_batch::*}:
-            lo_set_load_order(loop-value, {_layer})
+            pkg_set_load_order({_core}, loop-value, {_layer})
         add size of {_batch::*} to {_count}
         remove {_batch::*} from {_pending::*}
         add 1 to {_layer}
-    send "[pacskage-load-order] ordered %{_count}% package(s)" to {_sender}
+    send "[pacskage-reorder] ordered %{_count}% package(s)" to {_sender}
