@@ -1,4 +1,4 @@
-#pacskage-reorder
+# pacskage-reorder
 
 Reorders installed packages after update, install, remove, enable and disable commands.
 
